@@ -1,7 +1,6 @@
-const ytdl = require('ytdl-core');
+const ytdl = require('@distube/ytdl-core');
 
 module.exports = async (req, res) => {
-    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,14 +22,13 @@ module.exports = async (req, res) => {
     try {
         const info = await ytdl.getInfo(url);
         
-        // Filter formats with both video and audio
         const formats = info.formats
             .filter(f => f.hasVideo && f.hasAudio)
             .map(f => ({
                 quality: f.qualityLabel || 'Audio',
                 url: f.url
             }))
-            .slice(0, 5); // Top 5 formats only
+            .slice(0, 5);
 
         res.status(200).json({
             success: true,
@@ -39,9 +37,10 @@ module.exports = async (req, res) => {
             formats: formats
         });
     } catch (error) {
+        console.error('Error:', error);
         res.status(500).json({
             success: false,
-            message: error.message
+            message: 'Video info fetch failed: ' + error.message
         });
     }
 };
