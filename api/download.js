@@ -1,36 +1,34 @@
-const ytdl = require('@distube/ytdl-core');
-
 module.exports = async (req, res) => {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Preflight request handle karein
+    // Preflight handle
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
-    // Sirf POST allow karein
     if (req.method !== 'POST') {
         return res.status(405).json({ 
-            success: false,
+            success: false, 
             message: 'Method not allowed' 
         });
     }
 
     const { url } = req.body;
 
-    // URL check
     if (!url) {
         return res.status(400).json({ 
             success: false, 
-            message: 'YouTube URL required hai' 
+            message: 'YouTube URL required' 
         });
     }
 
-    // Valid YouTube URL check
-    if (!ytdl.validateURL(url)) {
+    // Video ID extract karein
+    const videoId = extractVideoId(url);
+    
+    if (!videoId) {
         return res.status(400).json({
             success: false,
             message: 'Valid YouTube URL daalein'
@@ -38,25 +36,46 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Video info fetch karein
-        const info = await ytdl.getInfo(url);
-        
-        // Video + Audio dono wale formats filter karein
-        const formats = info.formats
-            .filter(f => f.hasVideo && f.hasAudio)
-            .map(f => ({
-                quality: f.qualityLabel || 'Audio',
-                url: f.url,
-                container: f.container
-            }))
-            .slice(0, 5); // Sirf top 5 formats
+        // RapidAPI call
+        const response = await fetch(`https://youtube-media-downloader.p.rapidapi.com/v2/video/download?videoId=${videoId}`, {
+            method: 'GET',
+            headers: {
+                'X-RapidAPI-Key': 'e1ecca733bmshca01ab32d5fab4cp10ce02jsn9bcad32ed2e1',
+                'X-RapidAPI-Host': 'youtube-media-downloader.p.rapidapi.com'
+            }
+        });
 
-        // Success response
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'API error');
+        }
+
+        // Response format karein
+        const formats = [];
+        
+        // Agar different qualities hain toh unko format karein
+        if (data.links && Array.isArray(data.links)) {
+            data.links.forEach(link => {
+                formats.push({
+                    quality: link.quality || 'HD',
+                    url: link.url || link.link,
+                    size: link.size || ''
+                });
+            });
+        } else if (data.url) {
+            formats.push({
+                quality: data.quality || 'HD',
+                url: data.url,
+                size: data.size || ''
+            });
+        }
+
         res.status(200).json({
             success: true,
-            title: info.videoDetails.title,
-            thumbnail: info.videoDetails.thumbnails[info.videoDetails.thumbnails.length - 1].url,
-            duration: info.videoDetails.lengthSeconds,
+            title: data.title || 'YouTube Video',
+            thumbnail: data.thumbnail || `https://img.youtube.com/vi/${videoId}/0.jpg`,
+            duration: data.duration || '',
             formats: formats
         });
 
@@ -64,7 +83,28 @@ module.exports = async (req, res) => {
         console.error('Error:', error);
         res.status(500).json({
             success: false,
-            message: 'Video fetch failed: ' + error.message
+            message: 'Download failed: ' + error.message
         });
     }
+};
+
+// YouTube Video ID extractor
+function extractVideoId(url) {
+    const patterns = [
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\s?]+)/,
+        /youtube\.com\/shorts\/([^&\s?]+)/,
+        /youtube\.com\/live\/([^&\s?]+)/
+    ];
+    
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match && match[1] && match[1].length === 11) {
+            return match[1];
+        }
+    }
+    
+    // Fallback - general regex
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
 };
